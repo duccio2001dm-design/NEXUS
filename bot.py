@@ -1,3 +1,5 @@
+import os
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -95,13 +97,22 @@ async def chiudi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def analisi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🧠 /analisi sarà il prossimo modulo."
-    )
+    await update.message.reply_text("🧠 /analisi sarà il prossimo modulo.")
 
 
 def main():
     init_db()
+
+    public_url = os.getenv("NEXUS_PUBLIC_URL", "").rstrip("/")
+    port = int(os.getenv("PORT", "8000"))
+    webhook_path = os.getenv("NEXUS_WEBHOOK_PATH", "telegram")
+    secret_token = os.getenv("NEXUS_WEBHOOK_SECRET", "")
+
+    if not public_url:
+        raise RuntimeError(
+            "NEXUS_PUBLIC_URL is required when running NEXUS in webhook mode."
+        )
+
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -110,8 +121,18 @@ def main():
     application.add_handler(CommandHandler("chiudi", chiudi))
     application.add_handler(CommandHandler("analisi", analisi))
 
-    print("NEXUS is running...")
-    application.run_polling()
+    webhook_url = f"{public_url}/{webhook_path}"
+
+    print(f"NEXUS webhook: {webhook_url}")
+
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=webhook_path,
+        webhook_url=webhook_url,
+        secret_token=secret_token or None,
+        drop_pending_updates=True,
+    )
 
 
 if __name__ == "__main__":
