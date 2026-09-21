@@ -2,16 +2,16 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN
-from database import init_db, get_open_trades, get_trade_count
+from database import init_db, get_open_trades, get_trade_count, create_trade, close_trade
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 NEXUS online.\n\n"
-        "Comandi disponibili:\n"
-        "/stato - stato del bot\n"
-        "/trade - prossimamente\n"
-        "/chiudi - prossimamente\n"
+        "Comandi:\n"
+        "/stato - stato e trade aperte\n"
+        "/trade BTC LONG 104500 103800 106000 - registra una trade\n"
+        "/chiudi ID PREZZO - chiude una trade\n"
         "/analisi - prossimamente"
     )
 
@@ -28,8 +28,7 @@ async def stato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     if open_trades:
-        lines.append("")
-        lines.append("Trade aperte:")
+        lines += ["", "Trade aperte:"]
         for trade in open_trades:
             lines.append(
                 f"• #{trade['id']} {trade['symbol']} {trade['side']} @ {trade['entry']}"
@@ -39,27 +38,70 @@ async def stato(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📈 /trade sarà il prossimo modulo. "
-        "Per ora NEXUS sta preparando il database."
-    )
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "Uso: /trade SIMBOLO LONG/SHORT ENTRY [SL] [TP]\n"
+            "Esempio: /trade BTC LONG 104500 103800 106000"
+        )
+        return
+
+    try:
+        symbol = context.args[0].upper()
+        side = context.args[1].upper()
+        entry = float(context.args[2])
+        stop_loss = float(context.args[3]) if len(context.args) > 3 else None
+        take_profit = float(context.args[4]) if len(context.args) > 4 else None
+
+        if side not in ("LONG", "SHORT"):
+            raise ValueError("direzione")
+
+        trade_id = create_trade(symbol, side, entry, stop_loss, take_profit)
+
+        await update.message.reply_text(
+            f"✅ Trade #{trade_id} registrata\n"
+            f"📌 {symbol} {side}\n"
+            f"Entry: {entry}\n"
+            f"SL: {stop_loss if stop_loss is not None else '-'}\n"
+            f"TP: {take_profit if take_profit is not None else '-'}"
+        )
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Formato non valido.\n"
+            "Esempio: /trade BTC LONG 104500 103800 106000"
+        )
 
 
 async def chiudi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🔒 /chiudi sarà disponibile quando avremo completato la gestione delle trade."
-    )
+    if len(context.args) != 2:
+        await update.message.reply_text("Uso: /chiudi ID PREZZO")
+        return
+
+    try:
+        trade_id = int(context.args[0])
+        exit_price = float(context.args[1])
+        result = close_trade(trade_id, exit_price)
+
+        if result is None:
+            await update.message.reply_text("❌ Trade non trovata o già chiusa.")
+            return
+
+        await update.message.reply_text(
+            f"🔒 Trade #{trade_id} chiusa\n"
+            f"Prezzo uscita: {exit_price}\n"
+            f"Risultato: {result:+.2f}"
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Usa: /chiudi ID PREZZO")
 
 
 async def analisi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🧠 /analisi sarà il modulo che studierà le tue operazioni."
+        "🧠 /analisi sarà il prossimo modulo."
     )
 
 
 def main():
     init_db()
-
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
